@@ -1,5 +1,15 @@
-.Rproj.user
+# RStudio junk
+.Rproj.user/
 .Rhistory
 .RData
+.RDataTmp
 .Ruserdata
 .DS_Store
+# Ignore RStudio + system files
+.Rproj.user/
+.Rhistory
+.RData
+.RDataTmp
+.Ruserdata
+.DS_Store
+Misc/otu_table_export.csv
