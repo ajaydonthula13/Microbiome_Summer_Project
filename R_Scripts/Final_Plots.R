@@ -15,62 +15,112 @@ ggplot(betadiv_data, aes(x = bray_distance, y = sorenson)) +
 
 # Plot 2: Initial patient comparison at first time point using Bray Curtis 
 
-colnames(table1_data)
-
-# Load libraries
 library(ggplot2)
 library(dplyr)
 
-# Load data
-betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv")
+# Load and preprocess
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv") %>%
+  mutate(collection_date = as.Date(collection_date))
 
-# Convert date if not already in date format
-betadiv_data$collection_date <- as.Date(betadiv_data$collection_date)
-
-# Get only the first collection date per subject
+# Grab each subject’s first sample
 entry_distances <- betadiv_data %>%
   group_by(subject_id) %>%
   arrange(collection_date) %>%
-  slice(1) %>%  # keep only first time point
-  ungroup()
+  slice(1) %>%
+  ungroup() %>%
+  # make subject_id a factor in numeric order
+  mutate(subject_id = factor(subject_id, levels = sort(unique(subject_id))))
 
-# Create dot plot of Bray-Curtis distances at first time point
-ggplot(entry_distances, aes(x = reorder(subject_id, bray_distance), y = bray_distance)) +
-  geom_point(color = "steelblue", size = 2) +
-  coord_flip() +
+# ——— Bray–Curtis at Entry ———
+ggplot(entry_distances, aes(x = subject_id, y = bray_distance)) +
+  geom_point(size = 2, color = "steelblue") +
   labs(
     title = "Bray–Curtis Distance to Healthy Population at Trial Entry",
-    x = "Subject ID",
-    y = "Bray–Curtis Distance (First Time Point)"
-  ) +
-  theme_minimal()
-
-
-# Plot 3: Beta Diversity trajectories over time
-
-library(ggplot2)
-library(dplyr)
-
-# Load the data (adjust path if needed)
-betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv")
-
-# Convert date column
-betadiv_data$collection_date <- as.Date(betadiv_data$collection_date)
-
-# Plot trajectories, one panel per subject
-ggplot(betadiv_data, aes(x = collection_date, y = bray_distance)) +
-  geom_line(color = "steelblue", linewidth = 1) +
-  geom_point(color = "black", size = 1.5) +
-  facet_wrap(~ subject_id, scales = "free_x") +
-  labs(
-    title = "Subject-Specific Beta-Diversity Trajectories Over Time",
-    x = "Collection Date",
-    y = "Bray–Curtis Distance to Healthy"
+    x     = "Subject ID",
+    y     = "Bray–Curtis Distance\n(First Time Point)"
   ) +
   theme_minimal(base_size = 11) +
   theme(
-    strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1)
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    axis.title  = element_text(face = "bold")
+  )
+
+# ——— Sørensen at Entry ———
+ggplot(entry_distances, aes(x = subject_id, y = sorenson)) +
+  geom_point(size = 2, color = "steelblue") +
+  labs(
+    title = "Sørensen Similarity to Healthy Population at Trial Entry",
+    x     = "Subject ID",
+    y     = "Sørensen Similarity\n(First Time Point)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    axis.title  = element_text(face = "bold")
+  )
+
+# Plot 3: Beta Diversity trajectories over time
+library(ggplot2)
+library(dplyr)
+
+# Load + preprocess
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv") %>%
+  mutate(
+    collection_date = as.Date(collection_date),
+    # factor for coloring
+    fmt_route = factor(gi_entry, levels = c("No FMT","Upper GI","Lower GI"))
+  )
+
+# ——— Plot 3A: Bray–Curtis Trajectories ———
+ggplot(betadiv_data, 
+       aes(x = collection_date, 
+           y = bray_distance, 
+           group = subject_id, 
+           color = fmt_route)) +
+  geom_line(size = 1) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ subject_id, scales = "free") +
+  scale_color_manual(
+    values = c("No FMT" = "#999999", "Upper GI" = "#E69F00", "Lower GI" = "#56B4E9"),
+    name = "FMT Route"
+  ) +
+  labs(
+    title = "Subject‑Specific Bray–Curtis Trajectories Over Time",
+    x     = "Collection Date",
+    y     = "Bray–Curtis Distance to Healthy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text      = element_text(face = "bold"),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    legend.title    = element_text(face = "bold")
+  )
+
+# ——— Plot 3B: Sørensen Trajectories ———
+ggplot(betadiv_data, 
+       aes(x = collection_date, 
+           y = sorenson, 
+           group = subject_id, 
+           color = fmt_route)) +
+  geom_line(size = 1) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ subject_id, scales = "free") +
+  scale_color_manual(
+    values = c("No FMT" = "#999999", "Upper GI" = "#E69F00", "Lower GI" = "#56B4E9"),
+    name = "FMT Route"
+  ) +
+  labs(
+    title = "Subject‑Specific Sørensen Trajectories Over Time",
+    x     = "Collection Date",
+    y     = "Sørensen Similarity to Healthy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text      = element_text(face = "bold"),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    legend.title    = element_text(face = "bold")
   )
 
 
@@ -80,7 +130,7 @@ library(dplyr)
 library(ggplot2)
 library(scales)
 
-# 1) Read in your data (using your working paths)
+# 1) Read in your data
 betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE)
 table1_data  <- read.csv("CSV: Other/table_1_data.csv",           stringsAsFactors = FALSE)
 
@@ -92,23 +142,25 @@ table1_data <- table1_data %>%
 merged <- betadiv_data %>%
   left_join(table1_data %>% select(subject_id, fmt_yn), by = "subject_id")
 
-# 4) Convert date and make sure fmt_yn is a factor in the right order
+# 4) Convert date and ensure fmt_yn is a factor in the right order
 merged <- merged %>%
   mutate(
     collection_date = as.Date(collection_date),
     fmt_yn = factor(fmt_yn, levels = c("No FMT", "FMT"))
   )
 
-# 5) Compute group‐means by date & FMT status
+# 5) Compute group‐means by date & FMT status for both metrics
 group_means <- merged %>%
   group_by(fmt_yn, collection_date) %>%
-  summarise(mean_bray = mean(bray_distance, na.rm = TRUE), .groups = "drop")
+  summarise(
+    mean_bray    = mean(bray_distance, na.rm = TRUE),
+    mean_sorenson = mean(sorenson,     na.rm = TRUE),
+    .groups = "drop"
+  )
 
-# 6) Plot: facet by FMT vs. No FMT
+# ——— Plot 4A: Bray–Curtis Trajectories ———
 ggplot(merged, aes(x = collection_date, y = bray_distance)) +
-  # faint individual trajectories
   geom_line(aes(group = subject_id), color = "grey80", alpha = 0.4) +
-  # bold group‐mean trajectories
   geom_line(data = group_means, aes(y = mean_bray), color = "steelblue", size = 1) +
   facet_wrap(~ fmt_yn, ncol = 1) +
   scale_x_date(
@@ -118,16 +170,40 @@ ggplot(merged, aes(x = collection_date, y = bray_distance)) +
   ) +
   labs(
     title    = "Beta‑Diversity Trajectories by FMT Status",
-    subtitle = "Bold = group mean",
+    subtitle = "Metric: Bray–Curtis (bold = group mean)",
     x        = "Collection Date",
     y        = "Bray–Curtis Distance to Healthy"
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    strip.text       = element_text(face = "bold"),
-    axis.text.x      = element_text(angle = 45, hjust = 1),
-    plot.subtitle    = element_text(size = 10, color = "grey30"),
-    panel.spacing    = unit(1, "lines")
+    strip.text    = element_text(face = "bold"),
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    plot.subtitle = element_text(size = 10, color = "grey30"),
+    panel.spacing = unit(1, "lines")
+  )
+
+# ——— Plot 4B: Sørensen Trajectories ———
+ggplot(merged, aes(x = collection_date, y = sorenson)) +
+  geom_line(aes(group = subject_id), color = "grey80", alpha = 0.4) +
+  geom_line(data = group_means, aes(y = mean_sorenson), color = "steelblue", size = 1) +
+  facet_wrap(~ fmt_yn, ncol = 1) +
+  scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b %Y",
+    expand = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "Beta‑Diversity Trajectories by FMT Status",
+    subtitle = "Metric: Sørensen (bold = group mean)",
+    x        = "Collection Date",
+    y        = "Sørensen Similarity to Healthy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text    = element_text(face = "bold"),
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    plot.subtitle = element_text(size = 10, color = "grey30"),
+    panel.spacing = unit(1, "lines")
   )
 
 # Plot 5: Subject Trajectories Upper vs. Lower
@@ -136,13 +212,10 @@ library(dplyr)
 library(ggplot2)
 
 # 1) Read in your data
-betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv",
-                         stringsAsFactors = FALSE)
-table1_data  <- read.csv("CSV: Other/table_1_data.csv",
-                         stringsAsFactors = FALSE)
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE)
+table1_data  <- read.csv("CSV: Other/table_1_data.csv",           stringsAsFactors = FALSE)
 
 # 2) Build the same subject_id key so we can join
-#    (betadiv_data has IDs like "PMTS_0004")
 table1_data <- table1_data %>%
   mutate(subject_id = sprintf("PMTS_%04d", study_id))
 
@@ -150,28 +223,31 @@ table1_data <- table1_data %>%
 fmt_meta <- table1_data %>%
   filter(fmt_yn == "FMT") %>%
   select(subject_id, route = gi_entry) %>%
-  # make it a factor so the panels come in the right order
   mutate(route = factor(route, levels = c("Lower GI", "Upper GI")))
 
-# 4) Join to the beta‐diversity table and keep only those FMT rows
+# 4) Join to the beta‑diversity table and keep only those FMT rows
 fmt_trajs <- betadiv_data %>%
   mutate(collection_date = as.Date(collection_date)) %>%
   inner_join(fmt_meta, by = "subject_id")
 
-# 5) Compute the mean Bray–Curtis per route and date
+# 5) Compute the mean Bray–Curtis and Sørensen per route and date
 route_means <- fmt_trajs %>%
   group_by(route, collection_date) %>%
-  summarize(mean_bray = mean(bray_distance, na.rm = TRUE), .groups = "drop")
+  summarise(
+    mean_bray     = mean(bray_distance, na.rm = TRUE),
+    mean_sorenson = mean(sorenson,      na.rm = TRUE),
+    .groups = "drop"
+  )
 
-# 6) Plot: one facet for each route
+# ——— Plot 5A: Bray–Curtis Trajectories by Route ———
 ggplot() +
-  # a) individual subject lines (grey, semi‑transparent)
+  # individual subject lines
   geom_line(
     data  = fmt_trajs,
     aes(x = collection_date, y = bray_distance, group = subject_id),
     color = "grey60", size = 0.6, alpha = 0.5
   ) +
-  # b) bold mean line for each route (colored by route)
+  # bold mean line
   geom_line(
     data  = route_means,
     aes(x = collection_date, y = mean_bray, color = route),
@@ -187,16 +263,200 @@ ggplot() +
     expand      = expansion(add = c(0, 5))
   ) +
   labs(
-    title    = "Beta‑Diversity Trajectories by FMT Route",
-    subtitle = "colored = route mean",
+    title    = "FMT Recipients: Bray–Curtis Trajectories by Route",
+    subtitle = "Bold = route mean",
     x        = "Collection Date",
     y        = "Bray–Curtis Distance to Healthy",
     color    = "FMT Route"
   ) +
   theme_minimal(base_size = 12) +
   theme(
+    strip.text      = element_text(face = "bold"),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    panel.spacing   = unit(1, "lines")
+  )
+
+# ——— Plot 5B: Sørensen Trajectories by Route ———
+ggplot() +
+  # individual subject lines
+  geom_line(
+    data  = fmt_trajs,
+    aes(x = collection_date, y = sorenson, group = subject_id),
+    color = "grey60", size = 0.6, alpha = 0.5
+  ) +
+  # bold mean line
+  geom_line(
+    data  = route_means,
+    aes(x = collection_date, y = mean_sorenson, color = route),
+    size = 1.2
+  ) +
+  facet_wrap(~ route, ncol = 1) +
+  scale_color_manual(
+    values = c("Lower GI" = "forestgreen", "Upper GI" = "darkorange")
+  ) +
+  scale_x_date(
+    date_breaks = "4 months",
+    date_labels = "%b\n%Y",
+    expand      = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "FMT Recipients: Sørensen Trajectories by Route",
+    subtitle = "Bold = route mean",
+    x        = "Collection Date",
+    y        = "Sørensen Similarity to Healthy",
+    color    = "FMT Route"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text      = element_text(face = "bold"),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    panel.spacing   = unit(1, "lines")
+  )
+
+# 6) Plot: FMT vs No FMT (with subject ID labels)
+
+library(ggrepel)
+library(dplyr)
+library(ggplot2)
+
+# Prepare the label data: last time‐point for each subject
+label_data <- merged %>%
+  group_by(fmt_yn, subject_id) %>%
+  arrange(collection_date) %>%
+  slice_tail(n = 1) %>%
+  ungroup()
+
+# ——— Plot 6A: Bray–Curtis Trajectories with Subject Labels ———
+ggplot(merged, aes(x = collection_date, y = bray_distance)) +
+  geom_line(aes(group = subject_id), color = "steelblue", alpha = 0.5) +
+  geom_text_repel(
+    data            = label_data,
+    aes(label = subject_id, y = bray_distance),
+    size            = 2.5,
+    direction       = "y",
+    segment.alpha   = 0.2,
+    min.segment.length = 0
+  ) +
+  facet_wrap(~ fmt_yn, ncol = 1) +
+  scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b %Y",
+    expand      = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "Subject-Level Bray–Curtis Trajectories (Labeled)",
+    subtitle = "Stratified by FMT vs No FMT",
+    x        = "Collection Date",
+    y        = "Bray–Curtis Distance to Healthy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
     strip.text    = element_text(face = "bold"),
     axis.text.x   = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom",
+    panel.spacing = unit(1, "lines")
+  )
+
+# ——— Plot 6B: Sørensen Trajectories with Subject Labels ———
+ggplot(merged, aes(x = collection_date, y = sorenson)) +
+  geom_line(aes(group = subject_id), color = "steelblue", alpha = 0.5) +
+  geom_text_repel(
+    data            = label_data,
+    aes(label = subject_id, y = sorenson),
+    size            = 2.5,
+    direction       = "y",
+    segment.alpha   = 0.2,
+    min.segment.length = 0
+  ) +
+  facet_wrap(~ fmt_yn, ncol = 1) +
+  scale_x_date(
+    date_breaks = "3 months",
+    date_labels = "%b %Y",
+    expand      = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "Subject-Level Sørensen Trajectories (Labeled)",
+    subtitle = "Stratified by FMT vs No FMT",
+    x        = "Collection Date",
+    y        = "Sørensen Similarity to Healthy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text    = element_text(face = "bold"),
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines")
+  )
+
+# 7) Plot: Upper vs Lower GI (with subject ID labels)
+
+library(ggrepel)
+library(dplyr)
+library(ggplot2)
+
+# Prepare the label data: last time‐point for each subject within each route
+label_data_route <- fmt_trajs %>%
+  group_by(route, subject_id) %>%
+  arrange(collection_date) %>%
+  slice_tail(n = 1) %>%
+  ungroup()
+
+# ——— Plot 7A: Bray–Curtis Trajectories by Route with Labels ———
+ggplot(fmt_trajs, aes(x = collection_date, y = bray_distance)) +
+  geom_line(aes(group = subject_id), color = "darkorange", size = 0.6, alpha = 0.5) +
+  geom_text_repel(
+    data                = label_data_route,
+    aes(label = subject_id, y = bray_distance),
+    size                = 2.5,
+    direction           = "y",
+    segment.alpha       = 0.2,
+    min.segment.length  = 0
+  ) +
+  facet_wrap(~ route, ncol = 1) +
+  scale_x_date(
+    date_breaks = "4 months",
+    date_labels = "%b %Y",
+    expand      = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "Subject-Level Bray–Curtis Trajectories by Route (Labeled)",
+    subtitle = "Upper vs Lower GI with subject ID at endpoint",
+    x        = "Collection Date",
+    y        = "Bray–Curtis Distance to Healthy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text    = element_text(face = "bold"),
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(1, "lines")
+  )
+
+# ——— Plot 7B: Sørensen Trajectories by Route with Labels ———
+ggplot(fmt_trajs, aes(x = collection_date, y = sorenson)) +
+  geom_line(aes(group = subject_id), color = "darkorange", size = 0.6, alpha = 0.5) +
+  geom_text_repel(
+    data                = label_data_route,
+    aes(label = subject_id, y = sorenson),
+    size                = 2.5,
+    direction           = "y",
+    segment.alpha       = 0.2,
+    min.segment.length  = 0
+  ) +
+  facet_wrap(~ route, ncol = 1) +
+  scale_x_date(
+    date_breaks = "4 months",
+    date_labels = "%b %Y",
+    expand      = expansion(add = c(0, 5))
+  ) +
+  labs(
+    title    = "Subject-Level Sørensen Trajectories by Route (Labeled)",
+    subtitle = "Upper vs Lower GI with subject ID at endpoint",
+    x        = "Collection Date",
+    y        = "Sørensen Similarity to Healthy"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text    = element_text(face = "bold"),
+    axis.text.x   = element_text(angle = 45, hjust = 1),
     panel.spacing = unit(1, "lines")
   )
