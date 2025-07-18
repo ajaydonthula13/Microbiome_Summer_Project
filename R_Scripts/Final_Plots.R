@@ -460,3 +460,95 @@ ggplot(fmt_trajs, aes(x = collection_date, y = sorenson)) +
     axis.text.x   = element_text(angle = 45, hjust = 1),
     panel.spacing = unit(1, "lines")
   )
+
+# Plot 8: Boxplots comparing FMT groups
+
+library(dplyr)
+library(ggplot2)
+
+# 1) Read in your data
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE)
+table1_data  <- read.csv("CSV: Other/table_1_data.csv",           stringsAsFactors = FALSE)
+
+# 2) Build subject IDs in the metadata
+table1_data <- table1_data %>%
+  mutate(subject_id = sprintf("PMTS_%04d", as.integer(study_id)))
+
+# 3) Pull in only the FMT recipients and their route
+fmt_meta <- table1_data %>%
+  filter(fmt_yn == "FMT") %>%
+  select(subject_id, route = gi_entry)
+
+# 4) Merge on subject_id and create group factor
+merged <- betadiv_data %>%
+  mutate(
+    collection_date = as.Date(collection_date),
+    subject_id      = as.character(subject_id)
+  ) %>%
+  left_join(fmt_meta, by = "subject_id") %>%
+  mutate(
+    group = case_when(
+      is.na(route)         ~ "No FMT",
+      route == "Upper GI"  ~ "FMT Upper",
+      route == "Lower GI"  ~ "FMT Lower"
+    ),
+    group = factor(group, levels = c("No FMT", "FMT Upper", "FMT Lower"))
+  )
+
+# —— Plot 8A: All Sørensen values ——
+ggplot(merged, aes(x = group, y = sorenson, fill = group)) +
+  geom_boxplot(width = 0.7, outlier.size = 1) +
+  scale_fill_manual(
+    values = c("No FMT" = "#999999", "FMT Upper" = "#E69F00", "FMT Lower" = "#56B4E9")
+  ) +
+  labs(
+    title = "All Sørensen Similarity Values by Treatment Group",
+    x     = "Treatment Group",
+    y     = "Sørensen Similarity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x     = element_text(face = "bold", angle = 30, hjust = 1),
+    axis.title      = element_text(face = "bold"),
+    plot.title      = element_text(face = "bold", hjust = 0.5)
+  )
+
+# —— Plot 8B: Mean Sørensen per patient ——
+# 5) Compute per‑patient mean Sørensen
+patient_means <- merged %>%
+  group_by(subject_id, group) %>%
+  summarise(mean_sorenson = mean(sorenson, na.rm = TRUE), .groups = "drop")
+
+# 6) Boxplot of per‑patient means
+ggplot(patient_means, aes(x = group, y = mean_sorenson, fill = group)) +
+  geom_boxplot(width = 0.7) +
+  scale_fill_manual(
+    values = c("No FMT" = "#999999", "FMT Upper" = "#E69F00", "FMT Lower" = "#56B4E9")
+  ) +
+  labs(
+    title = "Mean Sørensen Similarity per Patient by Group",
+    x     = "Treatment Group",
+    y     = "Mean Sørensen Similarity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x     = element_text(face = "bold", angle = 30, hjust = 1),
+    axis.title      = element_text(face = "bold"),
+    plot.title      = element_text(face = "bold", hjust = 0.5)
+  )
+
+
+# Model 9: Regression Model
+# Run same structure with the other outcome variables (in notes)
+# Ex. Excluding first date, means, and all values 
+
+
+
+
+
+
+
+
+
