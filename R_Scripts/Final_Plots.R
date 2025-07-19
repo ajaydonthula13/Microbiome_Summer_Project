@@ -702,3 +702,155 @@ lm(change        ~ group, data = change_fmt)  |> tidy()
 
 
 
+# Model 10: Multivariable Regression (no random effects) + Diagnostics
+# Simplified multivariable model with only key covariates
+
+# 1. Load libraries
+library(dplyr)
+
+# 2. Read & preprocess
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE) %>%
+  mutate(collection_date = as.Date(collection_date))
+table1_data <- read.csv("CSV: Other/table_1_data.csv", stringsAsFactors = FALSE) %>%
+  mutate(subject_id = sprintf("PMTS_%04d", as.integer(study_id)))
+
+# 3. Compute per‑subject change in Sørensen similarity
+change_df <- betadiv_data %>%
+  group_by(subject_id) %>%
+  arrange(collection_date) %>%
+  summarize(
+    baseline = first(sorenson),
+    maximum  = max(sorenson, na.rm = TRUE),
+    change   = maximum - baseline,
+    .groups  = "drop"
+  )
+
+# 4. Merge covariates and define group, any_abx, antacid
+merged2 <- change_df %>%
+  left_join(table1_data, by = "subject_id") %>%
+  mutate(
+    group    = case_when(
+      fmt_yn == "FMT" & gi_entry == "Upper GI" ~ "FMT Upper",
+      fmt_yn == "FMT" & gi_entry == "Lower GI" ~ "FMT Lower",
+      TRUE                                      ~ "No FMT"
+    ),
+    group    = factor(group, levels = c("No FMT","FMT Upper","FMT Lower")),
+    any_abx  = as.numeric(vanco_iv_bin | vanco_po_bin | carbapenem_bin |
+                            bl_bli_bin  | cefepime_bin   | quinolone_bin |
+                            metro_bin   | anaerobic_bin | bsbl_bin        |
+                            oxazolidinone_bin | corticosteroid_bin),
+    antacid  = as.numeric(antacid_bin)
+  )
+
+# 5. Fit the simplified linear model
+model10_simple <- lm(change ~ group + age + any_abx + antacid + ppi_bin + h2_bin, data = merged2)
+
+# 6. View results
+summary(model10_simple)
+
+# 7. Diagnostic plots (1: Residuals vs Fitted, 2: Normal Q-Q, etc.)
+par(mfrow = c(2, 2))
+plot(model10_simple)
+
+
+
+# Model 11: Clear/ Clean-cut Tables for Presentation
+
+# install.packages(c("dplyr","broom","purrr","gt","webshot2"))
+library(dplyr)
+library(broom)
+library(purrr)
+library(gt)
+
+# 1) Put your four analyses into a named list:
+outcomes <- list(
+  "All Sørensen"        = list(data = merged,               var = "sorenson"),
+  "Post‑entry Sørensen" = list(data = post_entry_sorensen,  var = "sorenson"),
+  "Mean per patient"    = list(data = patient_means,        var = "mean_sorenson"),
+  "Max−baseline change" = list(data = sorensen_change,      var = "change")
+)
+
+# 2) Loop over each, run KW and lm(), pull out only the group terms:
+summary_tbl <- imap_dfr(outcomes, ~{
+  dat <- .x$data
+  var <- .x$var
+  name <- .y
+  
+  # Kruskal–Wallis:
+  kw <- kruskal.test(reformulate("group", response = var), data = dat)
+  
+  # Linear model & tidy:
+  lm_res <- lm(reformulate("group", response = var), data = dat)
+  broom::tidy(lm_res) %>%
+    filter(term != "(Intercept)") %>%
+    transmute(
+      Outcome      = name,
+      Comparison   = term,
+      Estimate     = estimate,
+      `Std. Error` = std.error,
+      `p-value`    = p.value,
+      `KW p-value` = kw$p.value
+    )
+})
+
+# 3) Round and render with gt:
+summary_tbl %>%
+  mutate(across(c(Estimate, `Std. Error`, `p-value`, `KW p-value`), ~round(., 3))) %>%
+  gt() %>%
+  cols_label(
+    Outcome      = "Outcome",
+    Comparison   = "Group Comparison",
+    Estimate     = "Estimate",
+    `Std. Error` = "SE",
+    `p-value`    = "p‑value",
+    `KW p-value` = "KW p‑value"
+  ) %>%
+  tab_header(
+    title = md("**Uni‑variable Regression & Kruskal–Wallis**")
+  ) %>%
+  opt_align_table_header("center") -> summary_table
+
+# 4) View & save:
+print(summary_table)
+
+# install.packages(c("dplyr","broom","gt","glue"))
+library(dplyr)
+library(broom)
+library(gt)
+library(glue)
+
+# (1) Fit your model as before:
+# model10_simple <- lm(change ~ group + age + any_abx + antacid + ppi_bin + h2_bin,
+#                     data = merged2)
+
+# (2) Tidy only the covariates (drop intercept) and round:
+cov_df <- broom::tidy(model10_simple) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(across(c(estimate, std.error, statistic, p.value), ~ round(., 3)))
+
+# (3) Pull out overall model stats
+gl <- broom::glance(model10_simple)
+
+# (4) Build gt table
+gt_tbl <- cov_df %>%
+  gt(rowname_col = "term") %>%
+  cols_label(
+    term       = "Covariate",
+    estimate   = "Estimate",
+    std.error  = "SE",
+    statistic  = "t‑value",
+    p.value    = "p‑value"
+  ) %>%
+  tab_header(title = "Multivariable Regression Results") %>%
+  tab_source_note(
+    source_note = md(glue(
+      "**Overall model fit:** R² = {round(gl$r.squared,3)}, ",
+      "Adj. R² = {round(gl$adj.r.squared,3)}, ",
+      "F({gl$df}, {gl$df.residual}) = {round(gl$statistic,2)}, ",
+      "p = {format.pval(gl$p.value, digits = 3)}"
+    ))
+  ) %>%
+  opt_align_table_header("center")
+
+# (5) Display
+print(gt_tbl)
