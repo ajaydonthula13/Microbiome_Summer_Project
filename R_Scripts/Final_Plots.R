@@ -539,16 +539,166 @@ ggplot(patient_means, aes(x = group, y = mean_sorenson, fill = group)) +
     plot.title      = element_text(face = "bold", hjust = 0.5)
   )
 
+# Load required libraries
+library(dplyr)
+library(ggplot2)
 
-# Model 9: Regression Model
+# 1) Read & preprocess the beta‑diversity data
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE) %>%
+  mutate(
+    collection_date = as.Date(collection_date),
+    subject_id      = as.character(subject_id)
+  )
+
+# 2) Read & preprocess the metadata
+table1_data <- read.csv("CSV: Other/table_1_data.csv", stringsAsFactors = FALSE) %>%
+  mutate(subject_id = sprintf("PMTS_%04d", as.integer(study_id)))
+
+# 3) Build route metadata and combine into one master tibble
+route_meta <- table1_data %>%
+  filter(fmt_yn == "FMT") %>%
+  select(subject_id, route = gi_entry)
+
+all_data <- betadiv_data %>%
+  left_join(route_meta, by = "subject_id") %>%
+  mutate(
+    group = case_when(
+      is.na(route)        ~ "No FMT",
+      route == "Upper GI" ~ "FMT Upper",
+      route == "Lower GI" ~ "FMT Lower"
+    ),
+    group = factor(group, levels = c("No FMT","FMT Upper","FMT Lower"))
+  )
+
+# —— Plot 8c: Mean Sørensen (Excluding First Sample) by Treatment Group ———
+post_entry_sorensen <- all_data %>%
+  group_by(subject_id) %>%
+  arrange(collection_date) %>%
+  slice(-1) %>%                  # drop each subject’s first sample
+  ungroup()
+
+ggplot(post_entry_sorensen, aes(x = group, y = sorenson, fill = group)) +
+  geom_boxplot(width = 0.7) +
+  scale_fill_manual(values = c("No FMT" = "#999999",
+                               "FMT Upper" = "#E69F00",
+                               "FMT Lower" = "#56B4E9")) +
+  labs(
+    title = "Mean Sørensen (Excluding First Sample) by Treatment Group",
+    x     = "Treatment Group",
+    y     = "Sørensen Similarity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x     = element_text(angle = 30, hjust = 1, face = "bold"),
+    axis.title      = element_text(face = "bold"),
+    plot.title      = element_text(face = "bold", hjust = 0.5)
+  )
+
+# —— Plot 8d: Distribution of Sørensen Change (Max − Baseline) by Group ———
+sorensen_change <- all_data %>%
+  group_by(subject_id, group) %>%
+  arrange(collection_date) %>%
+  summarise(
+    baseline = first(sorenson),
+    maximum  = max(sorenson, na.rm = TRUE),
+    change   = maximum - baseline,
+    .groups  = "drop"
+  )
+
+ggplot(sorensen_change, aes(x = group, y = change, fill = group)) +
+  geom_boxplot(width = 0.7) +
+  scale_fill_manual(values = c("No FMT" = "#999999",
+                               "FMT Upper" = "#E69F00",
+                               "FMT Lower" = "#56B4E9")) +
+  labs(
+    title = "Distribution of Sørensen Change (Max − Baseline) by Group",
+    x     = "Treatment Group",
+    y     = "Change in Sørensen Similarity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x     = element_text(angle = 30, hjust = 1, face = "bold"),
+    axis.title      = element_text(face = "bold"),
+    plot.title      = element_text(face = "bold", hjust = 0.5)
+  )
+
+
+# Model 9: Uni-variable Regression Models
 # Run same structure with the other outcome variables (in notes)
 # Ex. Excluding first date, means, and all values 
+# ——— 1) Kruskal–Wallis tests for each outcome ———
 
+# All Sørensen values
+kruskal.test(sorenson ~ group,        data = merged)
 
+# Sørensen excluding first sample
+kruskal.test(sorenson ~ group,        data = post_entry_sorensen)
 
+# Mean Sørensen per patient
+kruskal.test(mean_sorenson ~ group,   data = patient_means)
 
+# Change from baseline (max − baseline)
+kruskal.test(change ~ group,          data = sorensen_change)
 
+# ——— 2) Univariable linear models for each outcome ———
 
+# 2A) All Sørensen values
+summary(lm(sorenson      ~ group, data = merged))
+
+# 2B) Sørensen excluding first sample
+summary(lm(sorenson      ~ group, data = post_entry_sorensen))
+
+# 2C) Mean Sørensen per patient
+summary(lm(mean_sorenson ~ group, data = patient_means))
+
+# 2D) Change from baseline
+summary(lm(change        ~ group, data = sorensen_change))
+
+# (optional) Tidy output via broom
+library(broom)
+
+lm(sorenson      ~ group, data = merged)             |> tidy()
+lm(sorenson      ~ group, data = post_entry_sorensen)|> tidy()
+lm(mean_sorenson ~ group, data = patient_means)      |> tidy()
+lm(change        ~ group, data = sorensen_change)    |> tidy()
+
+# —— 1) Filter to FMT recipients only & set “FMT Lower” as reference ——
+fmt_only     <- merged %>% 
+  filter(group != "No FMT") %>% 
+  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
+
+post_fmt     <- post_entry_sorensen %>% 
+  filter(group != "No FMT") %>% 
+  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
+
+patient_fmt  <- patient_means %>% 
+  filter(group != "No FMT") %>% 
+  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
+
+change_fmt   <- sorensen_change %>% 
+  filter(group != "No FMT") %>% 
+  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
+
+# —— 2) Kruskal–Wallis tests comparing Upper vs Lower ——  
+kruskal.test(sorenson      ~ group, data = fmt_only)    # All Sørensen values  
+kruskal.test(sorenson      ~ group, data = post_fmt)    # Excl. first sample  
+kruskal.test(mean_sorenson ~ group, data = patient_fmt) # Per‑patient mean  
+kruskal.test(change        ~ group, data = change_fmt)  # Max−baseline change  
+
+# —— 3) Univariable linear models (Lower = reference) ——  
+summary(lm(sorenson      ~ group, data = fmt_only))    # All Sørensen  
+summary(lm(sorenson      ~ group, data = post_fmt))    # Excl. first sample  
+summary(lm(mean_sorenson ~ group, data = patient_fmt)) # Per‑patient mean  
+summary(lm(change        ~ group, data = change_fmt))  # Max−baseline change  
+
+# —— 4) (Optional) Tidy model outputs with broom ——  
+library(broom)
+lm(sorenson      ~ group, data = fmt_only)    |> tidy()
+lm(sorenson      ~ group, data = post_fmt)    |> tidy()
+lm(mean_sorenson ~ group, data = patient_fmt) |> tidy()
+lm(change        ~ group, data = change_fmt)  |> tidy()
 
 
 
