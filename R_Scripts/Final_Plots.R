@@ -624,86 +624,10 @@ ggplot(sorensen_change, aes(x = group, y = change, fill = group)) +
     plot.title      = element_text(face = "bold", hjust = 0.5)
   )
 
-
-# Model 9: Uni-variable Regression Models
-# Run same structure with the other outcome variables (in notes)
-# Ex. Excluding first date, means, and all values 
-# ——— 1) Kruskal–Wallis tests for each outcome ———
-
-# All Sørensen values
-kruskal.test(sorenson ~ group,        data = merged)
-
-# Sørensen excluding first sample
-kruskal.test(sorenson ~ group,        data = post_entry_sorensen)
-
-# Mean Sørensen per patient
-kruskal.test(mean_sorenson ~ group,   data = patient_means)
-
-# Change from baseline (max − baseline)
-kruskal.test(change ~ group,          data = sorensen_change)
-
-# ——— 2) Univariable linear models for each outcome ———
-
-# 2A) All Sørensen values
-summary(lm(sorenson      ~ group, data = merged))
-
-# 2B) Sørensen excluding first sample
-summary(lm(sorenson      ~ group, data = post_entry_sorensen))
-
-# 2C) Mean Sørensen per patient
-summary(lm(mean_sorenson ~ group, data = patient_means))
-
-# 2D) Change from baseline
-summary(lm(change        ~ group, data = sorensen_change))
-
-# (optional) Tidy output via broom
-library(broom)
-
-lm(sorenson      ~ group, data = merged)             |> tidy()
-lm(sorenson      ~ group, data = post_entry_sorensen)|> tidy()
-lm(mean_sorenson ~ group, data = patient_means)      |> tidy()
-lm(change        ~ group, data = sorensen_change)    |> tidy()
-
-# —— 1) Filter to FMT recipients only & set “FMT Lower” as reference ——
-fmt_only     <- merged %>% 
-  filter(group != "No FMT") %>% 
-  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
-
-post_fmt     <- post_entry_sorensen %>% 
-  filter(group != "No FMT") %>% 
-  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
-
-patient_fmt  <- patient_means %>% 
-  filter(group != "No FMT") %>% 
-  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
-
-change_fmt   <- sorensen_change %>% 
-  filter(group != "No FMT") %>% 
-  mutate(group = factor(group, levels = c("FMT Lower", "FMT Upper")))
-
-# —— 2) Kruskal–Wallis tests comparing Upper vs Lower ——  
-kruskal.test(sorenson      ~ group, data = fmt_only)    # All Sørensen values  
-kruskal.test(sorenson      ~ group, data = post_fmt)    # Excl. first sample  
-kruskal.test(mean_sorenson ~ group, data = patient_fmt) # Per‑patient mean  
-kruskal.test(change        ~ group, data = change_fmt)  # Max−baseline change  
-
-# —— 3) Univariable linear models (Lower = reference) ——  
-summary(lm(sorenson      ~ group, data = fmt_only))    # All Sørensen  
-summary(lm(sorenson      ~ group, data = post_fmt))    # Excl. first sample  
-summary(lm(mean_sorenson ~ group, data = patient_fmt)) # Per‑patient mean  
-summary(lm(change        ~ group, data = change_fmt))  # Max−baseline change  
-
-# —— 4) (Optional) Tidy model outputs with broom ——  
-library(broom)
-lm(sorenson      ~ group, data = fmt_only)    |> tidy()
-lm(sorenson      ~ group, data = post_fmt)    |> tidy()
-lm(mean_sorenson ~ group, data = patient_fmt) |> tidy()
-lm(change        ~ group, data = change_fmt)  |> tidy()
-
-
-
-# Model 10: Multivariable Regression (no random effects) + Diagnostics
-# Simplified multivariable model with only key covariates
+# -------------------------------
+# Model 9: Univariable regressions
+#    Outcome = change in Sørensen
+# -------------------------------
 
 # 1. Load libraries
 library(dplyr)
@@ -711,8 +635,13 @@ library(dplyr)
 # 2. Read & preprocess
 betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE) %>%
   mutate(collection_date = as.Date(collection_date))
+
 table1_data <- read.csv("CSV: Other/table_1_data.csv", stringsAsFactors = FALSE) %>%
-  mutate(subject_id = sprintf("PMTS_%04d", as.integer(study_id)))
+  mutate(
+    subject_id = sprintf("PMTS_%04d", as.integer(study_id)),
+    fmt_any    = factor(ifelse(fmt_yn == "FMT", "FMT", "No FMT"),
+                        levels = c("No FMT","FMT"))
+  )
 
 # 3. Compute per‑subject change in Sørensen similarity
 change_df <- betadiv_data %>%
@@ -725,132 +654,203 @@ change_df <- betadiv_data %>%
     .groups  = "drop"
   )
 
-# 4. Merge covariates and define group, any_abx, antacid
+# 4. Merge covariates and create exposure & covariate vars
 merged2 <- change_df %>%
   left_join(table1_data, by = "subject_id") %>%
   mutate(
-    group    = case_when(
-      fmt_yn == "FMT" & gi_entry == "Upper GI" ~ "FMT Upper",
-      fmt_yn == "FMT" & gi_entry == "Lower GI" ~ "FMT Lower",
-      TRUE                                      ~ "No FMT"
+    # FMT route for the subset analysis
+    route = factor(
+      case_when(
+        fmt_yn == "FMT" & gi_entry == "Upper GI" ~ "Upper GI",
+        fmt_yn == "FMT" & gi_entry == "Lower GI" ~ "Lower GI"
+      ),
+      levels = c("Upper GI","Lower GI")
     ),
-    group    = factor(group, levels = c("No FMT","FMT Upper","FMT Lower")),
-    any_abx  = as.numeric(vanco_iv_bin | vanco_po_bin | carbapenem_bin |
-                            bl_bli_bin  | cefepime_bin   | quinolone_bin |
-                            metro_bin   | anaerobic_bin | bsbl_bin        |
-                            oxazolidinone_bin | corticosteroid_bin),
-    antacid  = as.numeric(antacid_bin)
+    # antibiotic burden
+    abx_count   = rowSums(across(c(
+      vanco_iv_bin, vanco_po_bin, carbapenem_bin, bl_bli_bin,
+      cefepime_bin, quinolone_bin, metro_bin, anaerobic_bin,
+      bsbl_bin, oxazolidinone_bin, corticosteroid_bin
+    )), na.rm = TRUE),
+    # any antacid use
+    any_antacid = as.numeric(
+      rowSums(across(c(antacid_bin, ppi_bin, h2_bin)), na.rm = TRUE) > 0
+    )
   )
 
-# 5. Fit the simplified linear model
-model10_simple <- lm(change ~ group + age + any_abx + antacid + ppi_bin + h2_bin, data = merged2)
-
-# 6. View results
-summary(model10_simple)
-
-# 7. Diagnostic plots (1: Residuals vs Fitted, 2: Normal Q-Q, etc.)
-par(mfrow = c(2, 2))
-plot(model10_simple)
+# 5. Subset to FMT recipients
+fmt_only <- merged2 %>% filter(fmt_any == "FMT")
 
 
+## 9A) FMT any vs. no FMT
+kruskal.test(change ~ fmt_any, data = merged2)
+summary( lm(change ~ fmt_any, data = merged2) )
 
-# Model 11: Clear/ Clean-cut Tables for Presentation
+## 9B) Within FMT only: Upper GI vs. Lower GI
+kruskal.test(change ~ route,    data = fmt_only)
+summary( lm(change ~ route,    data = fmt_only) )
 
-# install.packages(c("dplyr","broom","purrr","gt","webshot2"))
-library(dplyr)
-library(broom)
-library(purrr)
-library(gt)
 
-# 1) Put your four analyses into a named list:
-outcomes <- list(
-  "All Sørensen"        = list(data = merged,               var = "sorenson"),
-  "Post‑entry Sørensen" = list(data = post_entry_sorensen,  var = "sorenson"),
-  "Mean per patient"    = list(data = patient_means,        var = "mean_sorenson"),
-  "Max−baseline change" = list(data = sorensen_change,      var = "change")
-)
+# -------------------------------
+# Model 10: Multivariable regressions
+#    Outcome = change in Sørensen
+#    Adjusted for age, abx_count, any_antacid
+# -------------------------------
 
-# 2) Loop over each, run KW and lm(), pull out only the group terms:
-summary_tbl <- imap_dfr(outcomes, ~{
-  dat <- .x$data
-  var <- .x$var
-  name <- .y
-  
-  # Kruskal–Wallis:
-  kw <- kruskal.test(reformulate("group", response = var), data = dat)
-  
-  # Linear model & tidy:
-  lm_res <- lm(reformulate("group", response = var), data = dat)
-  broom::tidy(lm_res) %>%
-    filter(term != "(Intercept)") %>%
-    transmute(
-      Outcome      = name,
-      Comparison   = term,
-      Estimate     = estimate,
-      `Std. Error` = std.error,
-      `p-value`    = p.value,
-      `KW p-value` = kw$p.value
-    )
-})
+## 10A) FMT any vs. no FMT + covariates
+model10A <- lm(change ~ fmt_any + age + abx_count + any_antacid,
+               data = merged2)
+summary(model10A)
 
-# 3) Round and render with gt:
-summary_tbl %>%
-  mutate(across(c(Estimate, `Std. Error`, `p-value`, `KW p-value`), ~round(., 3))) %>%
-  gt() %>%
-  cols_label(
-    Outcome      = "Outcome",
-    Comparison   = "Group Comparison",
-    Estimate     = "Estimate",
-    `Std. Error` = "SE",
-    `p-value`    = "p‑value",
-    `KW p-value` = "KW p‑value"
-  ) %>%
-  tab_header(
-    title = md("**Uni‑variable Regression & Kruskal–Wallis**")
-  ) %>%
-  opt_align_table_header("center") -> summary_table
+## 10B) Within FMT only: route + covariates
+model10B <- lm(change ~ route + age + abx_count + any_antacid,
+               data = fmt_only)
+summary(model10B)
 
-# 4) View & save:
-print(summary_table)
-
-# install.packages(c("dplyr","broom","gt","glue"))
+# Model 11: Printing Tables out
+# 1) Load libraries
 library(dplyr)
 library(broom)
 library(gt)
 library(glue)
 
-# (1) Fit your model as before:
-# model10_simple <- lm(change ~ group + age + any_abx + antacid + ppi_bin + h2_bin,
-#                     data = merged2)
+# 2) Read & preprocess
+betadiv_data <- read.csv("CSV: Other/dat_betadiv_ucsp_2025.csv", stringsAsFactors = FALSE) %>%
+  mutate(collection_date = as.Date(collection_date))
 
-# (2) Tidy only the covariates (drop intercept) and round:
-cov_df <- broom::tidy(model10_simple) %>%
-  filter(term != "(Intercept)") %>%
-  mutate(across(c(estimate, std.error, statistic, p.value), ~ round(., 3)))
+table1_data <- read.csv("CSV: Other/table_1_data.csv", stringsAsFactors = FALSE) %>%
+  mutate(
+    subject_id = sprintf("PMTS_%04d", as.integer(study_id)),
+    fmt_any    = factor(ifelse(fmt_yn == "FMT", "FMT", "No FMT"),
+                        levels = c("No FMT","FMT"))
+  )
 
-# (3) Pull out overall model stats
-gl <- broom::glance(model10_simple)
+change_df <- betadiv_data %>%
+  group_by(subject_id) %>%
+  arrange(collection_date) %>%
+  summarize(
+    baseline = first(sorenson),
+    maximum  = max(sorenson, na.rm = TRUE),
+    change   = maximum - baseline,
+    .groups  = "drop"
+  )
 
-# (4) Build gt table
-gt_tbl <- cov_df %>%
-  gt(rowname_col = "term") %>%
-  cols_label(
-    term       = "Covariate",
-    estimate   = "Estimate",
-    std.error  = "SE",
-    statistic  = "t‑value",
-    p.value    = "p‑value"
-  ) %>%
-  tab_header(title = "Multivariable Regression Results") %>%
+merged2 <- change_df %>%
+  left_join(table1_data, by = "subject_id") %>%
+  mutate(
+    route = factor(case_when(
+      fmt_yn == "FMT" & gi_entry == "Upper GI" ~ "Upper GI",
+      fmt_yn == "FMT" & gi_entry == "Lower GI" ~ "Lower GI"
+    ), levels = c("Upper GI","Lower GI")),
+    abx_count   = rowSums(across(c(
+      vanco_iv_bin, vanco_po_bin, carbapenem_bin, bl_bli_bin,
+      cefepime_bin, quinolone_bin, metro_bin, anaerobic_bin,
+      bsbl_bin, oxazolidinone_bin, corticosteroid_bin
+    )), na.rm = TRUE),
+    any_antacid = as.numeric(rowSums(across(c(antacid_bin, ppi_bin, h2_bin)), na.rm = TRUE) > 0)
+  )
+
+fmt_only <- merged2 %>% filter(fmt_any == "FMT")
+
+# 3) Fit the four models
+model9A  <- lm(change ~ fmt_any,                                     data = merged2)
+model9B  <- lm(change ~ route,                                       data = fmt_only)
+model10A <- lm(change ~ fmt_any + age + abx_count + any_antacid,     data = merged2)
+model10B <- lm(change ~ route   + age + abx_count + any_antacid,     data = fmt_only)
+
+# 4) Extract overall stats
+gl9A  <- glance(model9A)
+gl9B  <- glance(model9B)
+gl10A <- glance(model10A)
+gl10B <- glance(model10B)
+
+# 5A) Table 9A: Univariable (FMT any vs No FMT)
+df9A <- tidy(model9A) %>% filter(term != "(Intercept)") %>%
+  transmute(
+    Covariate = "FMT vs No FMT",
+    Estimate  = round(estimate, 3),
+    SE        = round(std.error, 3),
+    `t-value` = round(statistic, 3),
+    `p-value` = round(p.value, 3)
+  )
+
+gt9A <- df9A %>%
+  gt() %>%
+  tab_header(title = "Univariable (FMT vs No FMT)") %>%
   tab_source_note(
-    source_note = md(glue(
-      "**Overall model fit:** R² = {round(gl$r.squared,3)}, ",
-      "Adj. R² = {round(gl$adj.r.squared,3)}, ",
-      "F({gl$df}, {gl$df.residual}) = {round(gl$statistic,2)}, ",
-      "p = {format.pval(gl$p.value, digits = 3)}"
-    ))
-  ) %>%
-  opt_align_table_header("center")
+    md(glue("Overall R² = {round(gl9A$r.squared,3)}, p = {format.pval(gl9A$p.value, digits = 3)}"))
+  )
 
-# (5) Display
-print(gt_tbl)
+# 5B) Table 9B: Univariable (Upper vs Lower GI)
+df9B <- tidy(model9B) %>% filter(term != "(Intercept)") %>%
+  transmute(
+    Covariate = "Lower GI vs Upper GI",
+    Estimate  = round(estimate, 3),
+    SE        = round(std.error, 3),
+    `t-value` = round(statistic, 3),
+    `p-value` = round(p.value, 3)
+  )
+
+gt9B <- df9B %>%
+  gt() %>%
+  tab_header(title = "Univariable (Upper vs Lower GI)") %>%
+  tab_source_note(
+    md(glue("Overall R² = {round(gl9B$r.squared,3)}, p = {format.pval(gl9B$p.value, digits = 3)}"))
+  )
+
+# 5C) Table 10A: Multivariable (FMT any vs No FMT + Covariates)
+df10A <- tidy(model10A) %>% filter(term != "(Intercept)") %>%
+  transmute(
+    Covariate = recode(term,
+                       fmt_anyFMT   = "FMT vs No FMT",
+                       age           = "Age (years)",
+                       abx_count     = "Antibiotic classes",
+                       any_antacid   = "Any antacid use"
+    ),
+    Estimate  = round(estimate, 3),
+    SE        = round(std.error, 3),
+    `t-value` = round(statistic, 3),
+    `p-value` = round(p.value, 3)
+  )
+
+gt10A <- df10A %>%
+  gt() %>%
+  tab_header(title = "Multivariable (FMT any vs No FMT + Covariates)") %>%
+  tab_source_note(
+    md(glue(
+      "R² = {round(gl10A$r.squared,3)}, Adj R² = {round(gl10A$adj.r.squared,3)}, ",
+      "p = {format.pval(gl10A$p.value, digits = 3)}"
+    ))
+  )
+
+# 5D) Table 10B: Multivariable (Route + Covariates)
+df10B <- tidy(model10B) %>% filter(term != "(Intercept)") %>%
+  transmute(
+    Covariate = recode(term,
+                       routeLower.GI = "Lower GI vs Upper GI",
+                       routeUpper.GI = "Upper GI vs Lower GI",
+                       age            = "Age (years)",
+                       abx_count      = "Antibiotic classes",
+                       any_antacid    = "Any antacid use"
+    ),
+    Estimate  = round(estimate, 3),
+    SE        = round(std.error, 3),
+    `t-value` = round(statistic, 3),
+    `p-value` = round(p.value, 3)
+  )
+
+gt10B <- df10B %>%
+  gt() %>%
+  tab_header(title = "Multivariable (Route + Covariates)") %>%
+  tab_source_note(
+    md(glue(
+      "R² = {round(gl10B$r.squared,3)}, Adj R² = {round(gl10B$adj.r.squared,3)}, ",
+      "p = {format.pval(gl10B$p.value, digits = 3)}"
+    ))
+  )
+
+# 6) Display all tables
+gt9A
+gt9B
+gt10A
+gt10B
