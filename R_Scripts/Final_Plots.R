@@ -838,7 +838,7 @@ df10B <- tidy(model10B) %>% filter(term != "(Intercept)") %>%
     `t-value` = round(statistic, 3),
     `p-value` = round(p.value, 3)
   )
-
+ 
 gt10B <- df10B %>%
   gt() %>%
   tab_header(title = "Multivariable (Route + Covariates)") %>%
